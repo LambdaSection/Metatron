@@ -5,6 +5,11 @@ CODING.md
 IDEAS.md
 LINKEDIN.md
 
+# Protected files (Rule 10 - NEVER commit)
+mom_test_results.md
+mom_test_script.md
+decision.md
+
 # Dependencies
 node_modules/
 npm-debug.log*
