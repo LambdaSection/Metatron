@@ -28,9 +28,6 @@ VERIFICATION: ...\n[step-XX verification]…
 4. Parses those sections, appends the `CODE` snippet to a growing "full code" output, and appends the full step output to the running context so the next step has continuity.
 5. On `stop`, prints the full accumulated code.
 
-![Metatron Stepwise Code Generation Workflow](Metatron_Stepwise_Code_Generation_Workflow.png)
-
-
 ## Why this exists
 
 Most "AI coding" workflows fail because they are:
