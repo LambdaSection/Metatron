@@ -80,19 +80,9 @@ Every project must be secure by default.
 - **Always** protect against path traversal (no unauthorized file access).
 - **Always** use environment variables for secrets — never hardcode.
 - **Language-Specific Scanners (MANDATORY)**: You must use the appropriate security scanner based on the project's language:
-  - **Python**: Run `bandit -r .` and `safety check`, `pip-audit`
-  - **Rust**: Run `cargo audit` and `cargo clippy`
-  - **Node.js/JS/TS**: Run `npm audit` and `eslint` (security rules), `snyk`
-  - **Go**: Run `gosec` and `golangci-lint run`
-  - **Java**: Run `spotbugs` and `dependency-check`
-  - **C/C++**: Run `cppcheck` and `clang-tidy`
-  - **Ruby**: Run `brakeman` and `bundler-audit`
-  - **PHP**: Run `phpcs-security-audit` and `phpmd`
-  - **C#/.NET**: Run `dotnet scan` and `sonarscanner`
-  - **Swift**: Run `swiftlint` and `shellcheck`
-  - **Kotlin**: Run `detekt` and `dependency-check`
-  - **Scala**: Run `scalastyle` and `dependency-check`
-  - **General/All**: Run OWASP Dependency Check and `trivy`
+  - **Python**: Run `bandit -r .` et `safety check`.
+  - **Rust**: Run `cargo audit` et `cargo clippy`.
+  - **Node.js/React**: Run `npm audit`.
 - **Pre-commit**: Must include these security scanners.
 - **Security Policies**: Every project MUST have a `security.md` and explicit security policies.
 - **Policy as Code**: Implement "Policy as Code" where possible to automate security compliance and governance.
