@@ -9,6 +9,9 @@ jobs:
   sonarqube:
     name: SonarQube
     runs-on: windows-latest
+    # Scan non bloquant : le secret SONAR_TOKEN n'est pas configure sur ce repo.
+    # Ajoutez le secret pour rendre l'analyse bloquante.
+    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
         with:
