@@ -1,6 +1,7 @@
 {
   "name": "metatron",
-  "version": "1.0.0",
+  "version": "2.0.0",
+  "description": "AI Code Debugger & Analyzer - static rules, sandboxed execution and LLM review",
   "type": "module",
   "scripts": {
     "start": "node metatron.js",

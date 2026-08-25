@@ -11,10 +11,10 @@ const rl = readline.createInterface({
  */
 export function showHelp() {
   console.log(`
-Metatron - Stepwise Secure Code Generator
+Metatron gen - Legacy Stepwise Code Generator
 
 USAGE:
-  node metatron.js [options]
+  node metatron.js gen [options]
 
 OPTIONS:
   --help, -h          Show this help message
@@ -28,13 +28,15 @@ SUPPORTED PROVIDERS:
   4. Claude (Anthropic) - Requires CLAUDE_API_KEY environment variable
 
 EXAMPLES:
-  node metatron.js
-  GROK_API_KEY=your_key node metatron.js
-  OLLAMA_MODEL=llama2 node metatron.js
+  node metatron.js gen
+  GROK_API_KEY=your_key node metatron.js gen
+  OLLAMA_MODEL=llama2 node metatron.js gen
 
 DESCRIPTION:
   Generates code step-by-step with mandatory verification gates.
   Each step requires EXPLANATION/CODE/VERIFICATION format from AI.
+
+For the debugger/analyzer commands run: node metatron.js help
   `);
 }
 
