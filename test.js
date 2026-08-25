@@ -5,6 +5,9 @@ import { parseResponse } from './parser.js';
 import { scanSource, summarize, RULES } from './analyzer/static.js';
 import { parseErrors, formatRunReport } from './analyzer/runner.js';
 import { parseReviewResponse } from './analyzer/review.js';
+import { LESSONS, getLesson } from './analyzer/lessons.js';
+import { loadMemory, saveMemory, reconcile, getStats } from './learning/memory.js';
+import { buildMapDataFromMemory, renderMapHtml } from './learning/map.js';
 
 // Mock data for testing parser
 const testCases = [
@@ -201,6 +204,76 @@ assertAnalyzer('Parses bare JSON LLM review',
 
 assertAnalyzer('Throws on unparseable LLM review',
   (() => { try { parseReviewResponse('no json here'); return false; } catch { return true; } })());
+
+// ---------- Learning layer tests ----------
+console.log('\nRunning learning tests...\n');
+
+assertAnalyzer('Lexique couvre toutes les règles',
+  RULES.every(r => LESSONS[r.id]),
+  `manquantes: ${RULES.filter(r => !LESSONS[r.id]).map(r => r.id).join(', ')}`);
+
+const fallbackLesson = getLesson('INEXISTANT');
+assertAnalyzer('Leçon générique de secours',
+  typeof fallbackLesson.explanation === 'string' && fallbackLesson.category === 'Général');
+
+{
+  const mem = { version: 1, entries: {}, scans: [] };
+  const f1 = [{ ruleId: 'EVAL_USAGE', line: 3, severity: 'critical', file: 'a.js' }];
+  const r1 = reconcile(f1, mem);
+  assertAnalyzer('Première détection classée NEW',
+    r1.new.length === 1 && mem.entries['EVAL_USAGE|a.js'].occurrences === 1);
+
+  const r2 = reconcile([{ ruleId: 'EVAL_USAGE', line: 5, severity: 'critical', file: 'a.js' }], mem);
+  assertAnalyzer('Deuxième détection classée KNOWN',
+    r2.known.length === 1 && mem.entries['EVAL_USAGE|a.js'].lines.includes(5));
+
+  const r3 = reconcile([], mem);
+  assertAnalyzer('Disparition classée FIXED',
+    r3.fixed.length === 1 && mem.entries['EVAL_USAGE|a.js'].status === 'fixed');
+
+  const r4 = reconcile([{ ruleId: 'EVAL_USAGE', line: 9, severity: 'critical', file: 'a.js' }], mem);
+  assertAnalyzer('Retour après correction = REGRESSION',
+    r4.regressed.length === 1 && mem.entries['EVAL_USAGE|a.js'].regressionCount === 1);
+}
+
+{
+  const mem = { version: 1, entries: {}, scans: [] };
+  for (let i = 0; i < 3; i++) {
+    reconcile([{ ruleId: 'VAR_DECLARATION', line: i + 1, severity: 'info', file: 'b.js' }], mem);
+  }
+  const lastRun = reconcile([{ ruleId: 'VAR_DECLARATION', line: 4, severity: 'info', file: 'b.js' }], mem);
+  assertAnalyzer('Récurrence (>=3) classée RECURRING', lastRun.recurring.length === 1);
+
+  const stats = getStats(mem);
+  assertAnalyzer('Stats comptabilisent ouvert + scans',
+    stats.openCount === 1 && stats.scans === 4 && stats.topRecurring[0].occurrences === 4);
+}
+
+{
+  const mem = {
+    version: 1,
+    entries: {
+      'EVAL_USAGE|src/x.js': {
+        ruleId: 'EVAL_USAGE', file: 'src/x.js', firstSeen: '2026-01-01', lastSeen: '2026-01-02',
+        occurrences: 2, lines: [3, 8], status: 'open'
+      },
+      'EMPTY_CATCH|src/y.js': {
+        ruleId: 'EMPTY_CATCH', file: 'src/y.js', firstSeen: '2026-01-01', lastSeen: '2026-01-01',
+        occurrences: 1, lines: [12], status: 'fixed', fixedAt: '2026-01-03'
+      }
+    },
+    scans: []
+  };
+  const data = buildMapDataFromMemory(mem);
+  const html = renderMapHtml(data);
+  assertAnalyzer('Carte depuis mémoire : points ouverts + fixes',
+    data.points.length === 1 && data.fixed.length === 1 && data.files.includes('src/x.js'));
+  assertAnalyzer('HTML de carte contient données embarquées + leçons',
+    html.includes('"points"') &&
+    html.includes('application/json') &&
+    html.includes("Pourquoi c'est un probl") &&
+    html.includes('EVAL_USAGE'));
+}
 
 console.log(`Results: ${analyzerPassed}/${analyzerTotal} analyzer tests passed`);
 

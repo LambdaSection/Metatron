@@ -10,30 +10,37 @@ import { scanSource, checkSyntax, summarize } from './analyzer/static.js';
 import { runFile, formatRunReport } from './analyzer/runner.js';
 import { reviewCode } from './analyzer/review.js';
 import { printAnalyzeReport, printSummary } from './analyzer/report.js';
+import { loadMemory, saveMemory, reconcile, getStats } from './learning/memory.js';
+import { startTutorSession } from './learning/tutor.js';
+import { buildMapData, buildMapDataFromMemory, writeMapFile } from './learning/map.js';
 
 const HELP = `
-Metatron - AI Code Debugger & Analyzer
+Metatron - AI Code Debugger & Analyzer + Tuteur d'apprentissage
 
 USAGE:
-  node metatron.js analyze <file...> [--review] [--provider=N]
-  node metatron.js run <file> [--timeout=10000]
-  node metatron.js gentest <file>
-  node metatron.js gen [options]     (legacy stepwise generator)
+  node metatron.js learn <file...>       Analyse + leçons + tuteur interactif
+  node metatron.js analyze <file...>     Scan statique seul [--review] [--provider=N]
+  node metatron.js run <file>            Exécution sandboxée [--timeout=10000]
+  node metatron.js gentest <file>        Génère et exécute des tests (LLM)
+  node metatron.js progress              Tableau de bord erreurs/progrès
+  node metatron.js map [--out=path]      Carte HTML cliquable des erreurs
+  node metatron.js gen [options]         Legacy générateur pas-à-pas
   node metatron.js help
 
-COMMANDS:
-  analyze    Static rule scan + syntax check on JS files.
-             --review adds an LLM review layer (auto-detects API key
-             in env: GROK_API_KEY / GROQ_API_KEY / CLAUDE_API_KEY / OLLAMA_MODEL).
-             Exit code 1 if critical/high findings.
-  run        Execute a file in a sandboxed child process with timeout,
-             capture stdout/stderr and structured errors.
-  gentest    Generate a node:test suite with the LLM, then execute it.
-  gen        Legacy interactive stepwise code generation.
+LE MODE APPRENTISSAGE :
+  learn    Détecte les erreurs, les classe (nouveau / déjà vu / récurrent /
+           RÉGRESSION), affiche la leçon de chacune et ouvre une session
+           tutor où tu poses tes questions en français sur ton code.
+           Mémoire persistante dans .metatron/memory.json.
+  progress Historique : récidives, corrigées, régressions.
+  map      Génère metatron-map.html : points d'erreur cliquables par fichier,
+           taille = récurrence, anneau rouge = régression. Sans fichiers en
+           argument, reconstruit la carte depuis la mémoire.
 
 EXAMPLES:
-  node metatron.js analyze src/app.js utils.js --review
-  node metatron.js run script.js --timeout=5000
+  node metatron.js learn src/app.js
+  node metatron.js progress
+  node metatron.js map --out=ma-carte.html
 `;
 
 const PROVIDER_ENV = [
@@ -257,6 +264,125 @@ async function cmdGen(args) {
   closeInterface();
 }
 
+// ---------- learn ----------
+async function cmdLearn(restArgs) {
+  const targets = restArgs.filter(a => !a.startsWith('--'));
+  if (targets.length === 0) {
+    console.log('❌ Usage: node metatron.js learn <file...>');
+    process.exitCode = 2;
+    return;
+  }
+
+  const files = [];
+  const findings = [];
+
+  for (const target of targets) {
+    const code = await readTarget(target);
+    if (code === null) continue;
+    files.push({ name: target, code });
+
+    const syntax = await checkSyntax(target);
+    if (!syntax.ok) {
+      console.log(`⛔ ${target} — erreur de syntaxe :\n${syntax.error}\n`);
+      continue;
+    }
+    for (const f of scanSource(code)) {
+      findings.push({ ...f, file: target });
+    }
+  }
+
+  const memory = await loadMemory();
+  const classified = reconcile(findings, memory);
+  const stats = getStats(memory);
+  await saveMemory(memory);
+
+  printFindingOverview(classified);
+
+  let config = null;
+  const providerId = detectProviderFromEnv();
+  if (providerId) {
+    config = await getProviderConfig(providerId);
+  }
+
+  await startTutorSession({ files, classified, stats, config });
+}
+
+function printFindingOverview(classified) {
+  const icons = { regressed: '🚨', recurring: '🔁', new: '🆕', known: '👀', fixed: '✅' };
+  console.log('\n📊 Résultat de l\'analyse :');
+  for (const [kind, label] of [
+    ['regressed', 'RÉGRESSIONS (corrigée puis revenue !)'],
+    ['recurring', 'Récurrences (3 fois ou plus)'],
+    ['new', 'Nouvelles erreurs'],
+    ['known', 'Déjà connues'],
+    ['fixed', 'Corrigées depuis la dernière fois 🎉']
+  ]) {
+    if (classified[kind].length === 0) continue;
+    console.log(`\n${icons[kind]} ${label} (${classified[kind].length}) :`);
+    for (const item of classified[kind]) {
+      const file = item.file ?? item.entry?.file ?? '';
+      const line = item.line ?? '';
+      const title = item.title ?? item.ruleId;
+      console.log(`   • ${title} — ${file}${line ? ':' + line : ''}`);
+    }
+  }
+  console.log('');
+}
+
+// ---------- progress ----------
+async function cmdProgress() {
+  const memory = await loadMemory();
+  const stats = getStats(memory);
+
+  console.log('\n📈 METATRON — Progression');
+  console.log('═'.repeat(50));
+  console.log(`Erreurs distinctes rencontrées : ${stats.totalDistinct}`);
+  console.log(`Encore ouvertes               : ${stats.openCount}`);
+  console.log(`Corrigées                     : ${stats.fixedCount} 🎉`);
+  console.log(`Régressions totales           : ${stats.regressionTotal}`);
+  console.log(`Scans mémorisés               : ${stats.scans}`);
+
+  if (stats.topRecurring.length > 0) {
+    console.log('\nTop récidives (à travailler en priorité) :');
+    for (const e of stats.topRecurring) {
+      console.log(`   • [${e.occurrences}×] ${e.ruleId} — ${e.file}`);
+    }
+  }
+  console.log('');
+}
+
+// ---------- map ----------
+async function cmdMap(restArgs) {
+  const targets = restArgs.filter(a => !a.startsWith('--'));
+  const outArg = restArgs.find(a => a.startsWith('--out='));
+  const outPath = outArg ? outArg.split('=').slice(1).join('=') : 'metatron-map.html';
+
+  let data;
+  if (targets.length > 0) {
+    const findings = [];
+    for (const target of targets) {
+      const code = await readTarget(target);
+      if (code === null) continue;
+      if (!(await checkSyntax(target)).ok) {
+        console.log(`⚠️ ${target} a des erreurs de syntaxe, ignoré pour la carte.`);
+        continue;
+      }
+      for (const f of scanSource(code)) findings.push({ ...f, file: target });
+    }
+    const memory = await loadMemory();
+    data = buildMapData({ files: targets.map(t => ({ name: t })), classified: reconcile(findings, memory) });
+    await saveMemory(memory);
+  } else {
+    const memory = await loadMemory();
+    data = buildMapDataFromMemory(memory);
+    console.log('🗺️ Carte reconstruite depuis la mémoire projet.');
+  }
+
+  const written = await writeMapFile(data, outPath);
+  console.log(`✅ Carte écrite : ${written}`);
+  console.log(`   Ouvre-la dans ton navigateur pour explorer les points d'erreur.`);
+}
+
 // ---------- router ----------
 const [,, command = 'help', ...restArgs] = process.argv;
 
@@ -264,6 +390,9 @@ switch (command) {
   case 'analyze': await cmdAnalyze(restArgs); break;
   case 'run': await cmdRun(restArgs); break;
   case 'gentest': await cmdGentest(restArgs); break;
+  case 'learn': await cmdLearn(restArgs); break;
+  case 'progress': await cmdProgress(); break;
+  case 'map': await cmdMap(restArgs); break;
   case 'gen': {
     const args = parseArgs();
     if (args.showHelp) { showHelp(); break; }

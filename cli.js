@@ -6,6 +6,9 @@ const rl = readline.createInterface({
   output: process.stdout
 });
 
+let interfaceClosed = false;
+rl.on('close', () => { interfaceClosed = true; });
+
 /**
  * Display help information and exit
  */
@@ -70,10 +73,22 @@ export function parseArgs() {
 /**
  * Prompt user for input
  * @param {string} question - The question to ask
- * @returns {Promise<string>} User input
+ * @returns {Promise<string|null>} User input, or null if stdin is closed (EOF)
  */
 export async function ask(question) {
-  return new Promise(resolve => rl.question(question + ' ', resolve));
+  if (interfaceClosed) return null;
+  try {
+    return await new Promise((resolve, reject) => {
+      const onError = () => reject(new Error('readline closed'));
+      rl.once('error', onError);
+      rl.question(question + ' ', answer => {
+        rl.off('error', onError);
+        resolve(answer);
+      });
+    });
+  } catch {
+    return null;
+  }
 }
 
 /**

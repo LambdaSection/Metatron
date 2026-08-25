@@ -130,8 +130,12 @@ research/private/
 research/raw/
 research/interviews/
 research/contact-lists/
+research/contact-lists/
 notes-private.md
 contacts.csv
 leads.csv
 prospects.csv
 # --- end kuro-rules private research ---
+
+# Metatron project-local learning memory
+.metatron/
