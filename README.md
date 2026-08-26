@@ -2,170 +2,103 @@
 
 <img width="200" height="200" alt="Metatron Logo" src="metatron-logo.svg" />
 
+**AI Code Debugger & Learning Tutor** — Metatron analyzes your codebase, explains every
+issue it finds *in plain language*, remembers your recurring mistakes, and helps you
+stop making them.
 
-A stepwise, security-focused code generator CLI that forces an LLM to produce **one small verified step at a time**.
+Roadmap publique : [ROADMAP.md](ROADMAP.md)
 
-This project is intentionally minimal: a single Node.js script ([`metatron.js`](metatron.js)) that:
-- asks you what you want to build,
-- repeatedly requests the **next single critical step**,
-- enforces a strict response format (**EXPLANATION / CODE / VERIFICATION**),
-- accumulates generated code until you stop.
+## Why
 
-## What it does
+Research shows LLM-generated code accumulates vulnerabilities with every unreviewed
+iteration. Scanners give you a wall of warnings — Metatron turns each finding into a
+**lesson**: what's wrong, why it matters, a bad/good example, and a reference.
+It then tracks each error over time and flags **regressions** when a "fixed" issue
+comes back.
 
-When you run the CLI, it:
-1. Prompts you to select an AI provider (Grok, Ollama, Groq, or Claude).
-2. Prompts for your overall task (e.g. "PDF invoice generator from JSON cart").
-3. Calls the selected AI provider's chat-completions API.
-4. Requires the model to respond *only* as:
+## Install
 
-```
-EXPLANATION: ...
-CODE: ...
-VERIFICATION: ...\n[step-XX verification]…
-```
-
-4. Parses those sections, appends the `CODE` snippet to a growing "full code" output, and appends the full step output to the running context so the next step has continuity.
-5. On `stop`, prints the full accumulated code.
-
-![Metatron Stepwise Code Generation Workflow](Metatron_Stepwise_Code_Generation_Workflow.png)
-
-
-## Why this exists
-
-Most "AI coding" workflows fail because they are:
-- too big-bang (huge outputs you can't validate),
-- too unstructured (no consistent format),
-- too light on verification (no security/standards references).
-
-Metatron's goal is to make generation **structured, incremental, and easier to audit**.
-
-## Requirements
-
-- Node.js 18+ (Node 20+ recommended)
-- API key for cloud providers (Grok/Groq) or local Ollama installation
-
-## Setup
-
-Initialize the Node.js project and install dependencies:
+Requires Node.js ≥ 18.
 
 ```bash
-npm init -y
-npm pkg set type=module
-npm i node-fetch
+git clone https://github.com/LambdaSection/Metatron && cd Metatron && npm link
+# or, once published:
+npm install -g metatron
 ```
 
-### API Keys (for cloud providers)
-
-Set environment variables for your preferred provider(s):
-
-**Grok (xAI):**
-```bash
-# Windows (cmd.exe)
-set GROK_API_KEY=your_grok_key_here
-
-# macOS/Linux
-export GROK_API_KEY=your_grok_key_here
-```
-
-**Groq:**
-```bash
-# Windows (cmd.exe)
-set GROQ_API_KEY=your_groq_key_here
-
-# macOS/Linux
-export GROQ_API_KEY=your_groq_key_here
-```
-
-**Ollama (Local):**
-No API key needed, but you must have Ollama running locally:
-```bash
-# Install Ollama from https://ollama.ai/
-# Pull a model (example)
-ollama pull llama2
-# Set model via environment variable (optional)
-export OLLAMA_MODEL=llama2
-```
-
-## Run
+## Usage
 
 ```bash
-node metatron.js
+# Analyze a whole codebase, get interactive lessons per error
+metatron learn .
+
+# Static scan only (exit code 1 on critical/high findings — CI friendly)
+metatron analyze src/
+
+# Run a file in a sandboxed child process with timeout + structured errors
+metatron run script.js --timeout=5000
+
+# Dashboard: recurring mistakes, fixed count, regressions
+metatron progress
+
+# Clickable HTML map of every error point (severity, recurrence, lessons)
+metatron map --out=map.html
 ```
 
-You'll see a prompt like:
+Directories are scanned recursively (`node_modules`, `.git`, build artifacts excluded).
 
-- "Describe what you want to build…"
-- Then step-by-step generation begins:
-  - press **Enter** to request the next step
-  - type **save** to save your current session to a file
-  - type **stop** to print the full generated code
-  - type **quit** to exit
+## What it detects
 
-## Session Management
+21 static rules targeting bugs typical of AI-generated JavaScript:
 
-Metatron supports saving and loading sessions to preserve your progress:
+- Hardcoded secrets / API keys (OpenAI, GitHub, AWS patterns)
+- SQL & shell command injection, `eval`, `new Function`
+- TLS verification bypass, CORS wildcards, insecure HTTP
+- `Math.random()` used for tokens/sessions
+- Empty catch blocks, `while(true)` without exit, unawaited promises
+- Loose equality, `var`, debug leftovers, unresolved TODOs
 
-### Saving Sessions
-During code generation, type `save` when prompted to save your current session to a JSON file.
+Every rule ships with a built-in lesson in French (*quoi / pourquoi / exemple ❌✅ / référence*).
+Run `metatron --help` for the full command surface.
 
-### Loading Sessions
+## Memory & regression tracking
+
+Each scan updates `.metatron/memory.json` (project-local):
+
+| Status | Meaning |
+|---|---|
+| 🆕 New | first occurrence |
+| 👀 Known | still present |
+| 🔁 Recurring | seen 3+ times |
+| 🚨 Regression | was fixed, came back |
+| ✅ Fixed | gone during a scan covering its file |
+
+`metatron progress` shows your top recurring mistakes so you know what to study next.
+
+## Optional LLM layer
+
+No API key needed for static analysis. With one configured, Metatron gets smarter:
+
 ```bash
-node metatron.js --session=metatron_session_1234567890123.json
+export GROK_API_KEY=...     # or GROQ_API_KEY / CLAUDE_API_KEY / OLLAMA_MODEL
+
+metatron analyze src/ --review   # adds semantic LLM review beyond regex rules
+metatron learn src/app.js        # tutor mode: ask anything about YOUR code
 ```
 
-This will resume exactly where you left off, including:
-- Selected AI provider and configuration
-- Current task and context
-- Accumulated code and step count
-- Full conversation history
+The tutor answers in French, reasons over your analyzed files, and covers everything —
+architecture, naming, design — not just detected errors.
 
-## Supported AI Providers
+## Not a security tool
 
-**Grok (xAI):**
-- Model: `grok-4`
-- Endpoint: `https://api.x.ai/v1/chat/completions`
-- Requires: `GROK_API_KEY` environment variable
+Findings are heuristics; LLM output is guidance, not proof. Always review and test
+your code. Metatron makes review *easier* — it doesn't remove the need for it.
 
-**Ollama (Local):**
-- Model: Configurable via `OLLAMA_MODEL` env var (default: `llama2`)
-- Endpoint: `http://localhost:11434/v1/chat/completions`
-- Requires: Ollama running locally, no API key needed
+## Legacy
 
-**Groq:**
-- Model: `mixtral-8x7b-32768`
-- Endpoint: `https://api.groq.com/openai/v1/chat/completions`
-- Requires: `GROQ_API_KEY` environment variable
+The original stepwise generator (EXPLANATION / CODE / VERIFICATION with human gates)
+is still available: `metatron gen`.
 
-**Claude (Anthropic):**
-- Model: `claude-3-sonnet-20240229`
-- Endpoint: `https://api.anthropic.com/v1/messages`
-- Requires: `CLAUDE_API_KEY` environment variable
+## License
 
-## Configuration
-
-In [`metatron.js`](metatron.js), provider configurations are handled dynamically in the `getProviderConfig()` function. You can modify the default models, endpoints, or add new providers by editing this function.
-
-## Output format guarantees (and limits)
-
-The system prompt forces the model to produce:
-- a plain-English explanation of the step,
-- the code for that single step,
-- a verification hint (e.g., inline test/assertion + reference like OWASP/MDN/CVE).
-
-If the model fails to follow the format, the parser will fall back to placeholder values, and the generated code for that step may be `// error` (see parsing in [`main()`](metatron.js:47)).
-
-## Security notes
-
-- **Secrets**: Your API key is used locally, but prompts and context are sent to the remote API provider. Don't paste sensitive secrets or proprietary code unless you accept that risk.
-- **Verification is guidance, not proof**: References in `VERIFICATION` help auditing, but you still must run tests, static analysis, and security review yourself.
-- **Prompt injection**: If you feed untrusted text into the task/context, the model can be influenced. Treat external inputs as hostile.
-
-## Roadmap (ideas)
-
-- Write a `package.json` and lockfile for reproducible installs.
-- Add provider configuration via environment variables (endpoint/model).
-- Save steps + full code to files.
-- Add a "verification gate" that halts when a step can't be grounded in reliable sources (OWASP/MDN/CVE/etc.), explains what's happening, and asks the user targeted questions before continuing.
-- Add an optional "strict verification" mode that rejects steps without a concrete reference (link/standard/CVE id) in `VERIFICATION`.
-- Add a "verification gate" that requires you to confirm checks before continuing.
+See [LICENSE](LICENSE).
