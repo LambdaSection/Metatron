@@ -1,8 +1,34 @@
 {
   "name": "metatron",
   "version": "2.0.0",
-  "description": "AI Code Debugger & Analyzer - static rules, sandboxed execution and LLM review",
+  "description": "AI Code Debugger & Analyzer - static rules, sandboxed execution, LLM review, interactive learning tutor and error map for your codebases",
   "type": "module",
+  "bin": {
+    "metatron": "./metatron.js"
+  },
+  "files": [
+    "metatron.js",
+    "cli.js",
+    "ai.js",
+    "providers.js",
+    "parser.js",
+    "display.js",
+    "session.js",
+    "analyzer/",
+    "learning/"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "keywords": [
+    "code-review",
+    "static-analysis",
+    "ai-generated-code",
+    "debugger",
+    "learning",
+    "cli"
+  ],
+  "license": "SEE LICENSE IN LICENSE",
   "scripts": {
     "start": "node metatron.js",
     "test": "node test.js"

@@ -238,6 +238,18 @@ assertAnalyzer('Leçon générique de secours',
 
 {
   const mem = { version: 1, entries: {}, scans: [] };
+  reconcile([{ ruleId: 'EVAL_USAGE', line: 3, severity: 'critical', file: 'c.js' }], mem);
+  const outOfScope = reconcile([], mem, { scannedFiles: ['autre.js'] });
+  assertAnalyzer('Fichier hors périmètre non marqué FIXED',
+    outOfScope.fixed.length === 0 && mem.entries['EVAL_USAGE|c.js'].status === 'open');
+
+  const inScope = reconcile([], mem, { scannedFiles: ['c.js'] });
+  assertAnalyzer('Fichier scanné sans erreur marqué FIXED',
+    inScope.fixed.length === 1 && mem.entries['EVAL_USAGE|c.js'].status === 'fixed');
+}
+
+{
+  const mem = { version: 1, entries: {}, scans: [] };
   for (let i = 0; i < 3; i++) {
     reconcile([{ ruleId: 'VAR_DECLARATION', line: i + 1, severity: 'info', file: 'b.js' }], mem);
   }

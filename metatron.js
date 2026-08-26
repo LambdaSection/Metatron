@@ -1,3 +1,4 @@
+#!/usr/bin/env node
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { parseArgs, showHelp, ask, closeInterface } from './cli.js';
@@ -340,7 +341,7 @@ async function cmdLearn(restArgs) {
   }
 
   const memory = await loadMemory();
-  const classified = reconcile(findings, memory);
+  const classified = reconcile(findings, memory, { scannedFiles: targets });
   const stats = getStats(memory);
   await saveMemory(memory);
 
@@ -418,7 +419,7 @@ async function cmdMap(restArgs) {
       for (const f of scanSource(code)) findings.push({ ...f, file: target });
     }
     const memory = await loadMemory();
-    data = buildMapData({ files: targets.map(t => ({ name: t })), classified: reconcile(findings, memory) });
+    data = buildMapData({ files: targets.map(t => ({ name: t })), classified: reconcile(findings, memory, { scannedFiles: targets }) });
     await saveMemory(memory);
   } else {
     const memory = await loadMemory();

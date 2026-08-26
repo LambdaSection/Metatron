@@ -42,11 +42,15 @@ function entryKey(ruleId, file) {
  *  - recurring  : vue >= 3 fois
  *  - regressed  : était corrigée, elle est REVENUE (le pire)
  *  - fixed      : présente avant, disparue maintenant
+ *
+ * Un fichier n'est marqué "fixed" que s'il faisait partie du périmètre
+ * scanné (sinon son absence signifie juste "pas analysé cette fois").
  * @param {Array<{ruleId:string,line:number}>} findings
  * @param {Object} memory - objet mémoire MUTÉ en place
+ * @param {{scannedFiles?:string[]}} [options] - fichiers effectivement scannés
  * @returns {{new:Array,known:Array,recurring:Array,regressed:Array,fixed:Array}}
  */
-export function reconcile(findings, memory) {
+export function reconcile(findings, memory, { scannedFiles } = {}) {
   const now = new Date().toISOString();
   const result = { new: [], known: [], recurring: [], regressed: [], fixed: [] };
 
@@ -87,8 +91,13 @@ export function reconcile(findings, memory) {
     }
   }
 
+  const scannedSet = scannedFiles
+    ? new Set(scannedFiles.map(f => f.replace(/\\/g, '/')))
+    : null;
+
   for (const [key, entry] of Object.entries(memory.entries)) {
     if (entry.status === 'open' && !seenKeys.has(key)) {
+      if (scannedSet && !scannedSet.has(entry.file)) continue;
       entry.status = 'fixed';
       entry.fixedAt = now;
       result.fixed.push(entry);
