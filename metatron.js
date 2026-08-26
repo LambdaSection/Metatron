@@ -18,12 +18,12 @@ const HELP = `
 Metatron - AI Code Debugger & Analyzer + Tuteur d'apprentissage
 
 USAGE:
-  node metatron.js learn <file...>       Analyse + leçons + tuteur interactif
-  node metatron.js analyze <file...>     Scan statique seul [--review] [--provider=N]
+  node metatron.js learn <file|dossier...>   Analyse + leçons + tuteur interactif
+  node metatron.js analyze <file|dossier...> Scan statique seul [--review] [--provider=N]
   node metatron.js run <file>            Exécution sandboxée [--timeout=10000]
   node metatron.js gentest <file>        Génère et exécute des tests (LLM)
   node metatron.js progress              Tableau de bord erreurs/progrès
-  node metatron.js map [--out=path]      Carte HTML cliquable des erreurs
+  node metatron.js map [file|dir] [--out=path]  Carte HTML cliquable des erreurs
   node metatron.js gen [options]         Legacy générateur pas-à-pas
   node metatron.js help
 
@@ -34,11 +34,15 @@ LE MODE APPRENTISSAGE :
            Mémoire persistante dans .metatron/memory.json.
   progress Historique : récidives, corrigées, régressions.
   map      Génère metatron-map.html : points d'erreur cliquables par fichier,
-           taille = récurrence, anneau rouge = régression. Sans fichiers en
-           argument, reconstruit la carte depuis la mémoire.
+           taille = récurrence, anneau rouge = régression. Sans argument,
+           reconstruit la carte depuis la mémoire.
+
+  Un DOSSIER en argument déclenche un scan récursif de toute la codebase
+  (node_modules, .git, dist… exclus automatiquement).
 
 EXAMPLES:
-  node metatron.js learn src/app.js
+  node metatron.js learn .
+  node metatron.js learn src/
   node metatron.js progress
   node metatron.js map --out=ma-carte.html
 `;
@@ -72,14 +76,57 @@ async function readTarget(target) {
   }
 }
 
+const SKIP_DIRS = new Set(['node_modules', '.git', '.metatron', 'dist', 'build', 'coverage', '.next', '.nuxt']);
+const CODE_EXTS = new Set(['.js', '.mjs', '.cjs']);
+const MAX_FILES = 500;
+
+/**
+ * Résout les arguments en liste de fichiers JS : fichiers directs ou
+ * parcours récursif des dossiers (node_modules etc. ignorés).
+ * @param {string[]} args
+ * @returns {Promise<string[]>}
+ */
+export async function collectTargets(args) {
+  const targets = [];
+  for (const arg of args) {
+    let stat;
+    try {
+      stat = await fs.stat(arg);
+    } catch {
+      console.error(`⚠️ Introuvable, ignoré : ${arg}`);
+      continue;
+    }
+
+    if (stat.isFile()) {
+      targets.push(arg);
+    } else if (stat.isDirectory()) {
+      const entries = await fs.readdir(arg, { recursive: true, withFileTypes: true });
+      for (const entry of entries) {
+        if (!entry.isFile() || !CODE_EXTS.has(path.extname(entry.name))) continue;
+        const dir = entry.parentPath ?? entry.path ?? arg;
+        const rel = path.relative(arg, dir);
+        if (rel.split(path.sep).some(part => SKIP_DIRS.has(part))) continue;
+        targets.push(path.join(dir, entry.name));
+      }
+    }
+  }
+
+  const unique = [...new Set(targets)];
+  if (unique.length > MAX_FILES) {
+    console.log(`⚠️ ${unique.length} fichiers détectés — analyse limitée aux ${MAX_FILES} premiers.`);
+    return unique.slice(0, MAX_FILES);
+  }
+  return unique;
+}
+
 // ---------- analyze ----------
 async function cmdAnalyze(restArgs) {
-  const targets = restArgs.filter(a => !a.startsWith('--'));
+  const targets = await collectTargets(restArgs.filter(a => !a.startsWith('--')));
   const wantReview = restArgs.includes('--review');
   const providerOverride = flagValue(restArgs, 'provider', null);
 
   if (targets.length === 0) {
-    console.log('❌ No file to analyze. Usage: node metatron.js analyze <file...>');
+    console.log('❌ No file to analyze. Usage: node metatron.js analyze <fichier|dossier...>');
     process.exitCode = 2;
     return;
   }
@@ -266,12 +313,13 @@ async function cmdGen(args) {
 
 // ---------- learn ----------
 async function cmdLearn(restArgs) {
-  const targets = restArgs.filter(a => !a.startsWith('--'));
+  const targets = await collectTargets(restArgs.filter(a => !a.startsWith('--')));
   if (targets.length === 0) {
-    console.log('❌ Usage: node metatron.js learn <file...>');
+    console.log('❌ Usage: node metatron.js learn <fichier|dossier...>');
     process.exitCode = 2;
     return;
   }
+  if (targets.length > 1) console.log(`📂 ${targets.length} fichier(s) à analyser.`);
 
   const files = [];
   const findings = [];
@@ -353,9 +401,9 @@ async function cmdProgress() {
 
 // ---------- map ----------
 async function cmdMap(restArgs) {
-  const targets = restArgs.filter(a => !a.startsWith('--'));
   const outArg = restArgs.find(a => a.startsWith('--out='));
   const outPath = outArg ? outArg.split('=').slice(1).join('=') : 'metatron-map.html';
+  const targets = await collectTargets(restArgs.filter(a => !a.startsWith('--')));
 
   let data;
   if (targets.length > 0) {
